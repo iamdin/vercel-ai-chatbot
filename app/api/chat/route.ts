@@ -1,20 +1,19 @@
-import 'server-only'
-import { OpenAIStream, StreamingTextResponse } from 'ai'
-import { Configuration, OpenAIApi } from 'openai-edge'
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
-import { cookies } from 'next/headers'
 import { Database } from '@/lib/db_types'
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { OpenAIStream, StreamingTextResponse } from 'ai'
+import { cookies } from 'next/headers'
+import { OpenAI } from 'openai'
+import 'server-only'
 
 import { auth } from '@/auth'
 import { nanoid } from '@/lib/utils'
 
 export const runtime = 'edge'
 
-const configuration = new Configuration({
-  apiKey: process.env.OPENAI_API_KEY
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  timeout: 60000
 })
-
-const openai = new OpenAIApi(configuration)
 
 export async function POST(req: Request) {
   const cookieStore = cookies()
@@ -25,25 +24,32 @@ export async function POST(req: Request) {
   const { messages, previewToken } = json
   const userId = (await auth({ cookieStore }))?.user.id
 
+  console.log('userId', userId, openai)
+
   if (!userId) {
     return new Response('Unauthorized', {
       status: 401
     })
   }
 
+  console.log('previewToken', messages)
+
   if (previewToken) {
-    configuration.apiKey = previewToken
+    openai.apiKey = previewToken
   }
 
-  const res = await openai.createChatCompletion({
+  const response = await openai.chat.completions.create({
     model: 'gpt-3.5-turbo',
     messages,
     temperature: 0.7,
     stream: true
   })
 
-  const stream = OpenAIStream(res, {
+  console.log('response', response)
+
+  const stream = OpenAIStream(response, {
     async onCompletion(completion) {
+      console.log('completion', completion)
       const title = json.messages[0].content.substring(0, 100)
       const id = json.id ?? nanoid()
       const createdAt = Date.now()
